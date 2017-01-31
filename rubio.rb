@@ -16,10 +16,12 @@ unless File.exists?($work_dir+"/radio_streams")
   end
 end
 $streams = $work_dir+"/radio_streams"
-
-def nownext(search,now_next,play)
+def search( seek )
+  
+end
+def nownext( search, later, play )
+  $later = later
   linenum = 0
-  progs = 0
   # get schedule file
   stations = File.open($streams)
   stations.each do |line|
@@ -28,8 +30,13 @@ def nownext(search,now_next,play)
     break if linenum != 0
   end
   schedule_url = stations.each_line.take(2).last.strip
-  # if we have a link to a schedule, get the schedule
-  if schedule_url.match(/.*yaml/)
+#   search( search )
+  # if we don't have a link to a schedule, print a short message
+  unless schedule_url.match(/.*yaml/)
+    puts 'no information'
+    puts schedule_url
+  # if we do have a link to a schedule, get the schedule and print the info
+  else
     schedule_url = URI.parse(URI.encode(schedule_url)) 
     Net::HTTP.start(schedule_url.host, schedule_url.port) do |http|
       Dir.chdir($work_dir) do
@@ -56,34 +63,59 @@ def nownext(search,now_next,play)
           prog['subtitle'] = match[4]
           $progs.push prog
         end
-      
       end
     end
     # find first instance of end time after now_or_playing
     $progs.compact.each do |prog|
       $now_playing = $progs.index( prog )
       break if ( DateTime.parse(prog['ends']) > DateTime.now )
-    # print now / next info
     end
-    case play
-    when ARGV[2]
-      line1 = (' Now on' + $station[0]).colorize(:blue)
-    when ''
-      line1 = (' Playing ' + $station[0]).colorize(:blue)
-    end
+    # construct now / next info
+    # now
     starts = DateTime.parse($progs[$now_playing]['starts']).strftime('%H:%M')
     ends = DateTime.parse($progs[$now_playing]['ends']).strftime('%H:%M')
+
+    line1 = (' Now on ' + $station[0]).colorize(:blue) unless play
+    line1 = (' Playing ' + $station[0]).colorize(:blue) if play
     line2 = ' ' + starts + ' - ' + ends + '  ' + ($progs[$now_playing]['title']).colorize(:yellow)
     line3 = ('                - ' + $progs[$now_playing]['subtitle']).colorize(:green)
-    puts line1, line2, line3
-  else
-    puts 'no information'
+    line4 = ' ' + $progs[$now_playing]['synopsis']
+    # next
+    next_on = ' Next'.colorize(:blue)
+    $progs.compact.drop($now_playing+1).each_with_index do |programme, index|
+      starts = DateTime.parse(programme['starts']).strftime('%H:%M')
+      ends = DateTime.parse(programme['ends']).strftime('%H:%M')
+      next_on = next_on, ' ' + starts + ' - ' + ends + '  ' + programme['title'].colorize(:yellow)
+      break if ((index > 4)  and (later == false))
+    end
+    # display the information
+    puts line1, line2, line3, line4, '', next_on
   end 
-
 end
-nownext(ARGV[0],ARGV[1],'')
 
-    
+input = ARGV
+case input[0]
+when 'list'
+  puts 'list'
+when 'stop'
+  puts 'Stopping'
+  system( "cvlc vlc://quit &> /dev/null &" )
+else
+  search = input[0].to_s
+  case input[1]
+  when 'now', 'next'
+    nownext( search, false, false )
+  when 'later'
+    nownext( search, true, false )
+  when 'play', nil
+    nownext( search, false, true )
+  else
+    puts 'Please try again'
+  end
+end
+
+
+
 
   # split file into individual programmes
   
