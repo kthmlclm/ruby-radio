@@ -24,12 +24,13 @@ Thanks to simoncn and clanger9 at the [Linn forums](http://forums.linn.co.uk/bb/
 
 ## Depends on
 + ruby
-+ vlc (has to be in single instance mode)
++ vlc for playing radio (has to be in single instance mode)
 
 ## Install
 download rubio.rb, make it executable, run.
 
-## Usage
+## Usage 
+*these instructions don't work yet*
 ### list all available stations
     $ rubio list
 
