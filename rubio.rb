@@ -1,97 +1,141 @@
 #!/usr/bin/env ruby
+
 require 'net/http'
 require 'date'
 require 'colorize'
-# check if working directory exists, create it if not
-$work_dir = File.join(Dir.home, ".rubio")
-Dir.mkdir($work_dir) unless File.exists?($work_dir)
-# check if streams file exists, download it if not
-streams_url = URI('https://raw.githubusercontent.com/lemybeck/bash-bbc-radio/master/radio_streams')
-unless File.exists?($work_dir+"/radio_streams")
-  Net::HTTP.start(streams_url.host, streams_url.port, :use_ssl => streams_url.scheme == 'https') do |http|
-    resp = http.get streams_url
-    open($work_dir+"/radio_streams", "w") do |file|
-      file.write(resp.body)
+
+  STREAMS_URL = 'https://raw.githubusercontent.com/lemybeck/bash-bbc-radio/master/radio_streams'
+
+
+class RadioPlayer
+  
+  
+  def initialize( search, later, play )
+    initialize_variables
+    set_work_dir
+    get_streams_file
+    match_station( search )
+    regex_scanner
+    get_schedule
+    now_playing
+    now( play )
+    next_on( later )
+  end
+
+  def initialize_variables
+    @station_position = 0
+    @schedule = nil
+    @programmes = []
+  end
+  
+  # check if working directory exists, create it if not
+  def set_work_dir
+    @work_dir = File.join(Dir.home, ".rubio/")
+    Dir.mkdir @work_dir unless File.exists? @work_dir
+  end
+  
+  # check if streams file exists, download it if not
+  def get_streams_file
+    uri = URI.parse STREAMS_URL
+    @streams = @work_dir+File.basename(uri.path)
+    unless File.exists? @streams
+      Net::HTTP.start(uri.host, uri.port, :use_ssl => uri.scheme == 'https') do |http|
+        response = http.get uri
+        open(@streams, "w") do |file|
+          file.write(response.body)
+        end
+      end
     end
   end
-end
-$streams = $work_dir+"/radio_streams"
-def search( seek )
   
-end
-def nownext( search, later, play )
-  $later = later
-  linenum = 0
-  # get schedule file
-  stations = File.open($streams)
-  stations.each do |line|
-    linenum = $. if line.downcase.include?('[*') && line.downcase.include?(search)
-    $station = line.scan(/] (.*)/)[0]
-    break if linenum != 0
+  # match station
+  def match_station( search )
+    stations = File.open @streams
+    stations.each do |line|
+      @station_position = $. if line.downcase.include?('[*') && line.downcase.include?(search)
+      @station = line.scan(/] (.*)/)[0]
+      break if @station_position != 0
+    end
+    @stream_url = IO.readlines(stations)[@station_position].strip
+    schedule = IO.readlines(stations)[@station_position+1].strip
+    @schedule = URI.parse(URI.encode(schedule)) if schedule.match(/.*yaml/)
   end
-  schedule_url = stations.each_line.take(2).last.strip
-#   search( search )
+
   # if we don't have a link to a schedule, print a short message
-  unless schedule_url.match(/.*yaml/)
+  def no_match
     puts 'no information'
-    puts schedule_url
+    puts @schedule
+  end
+  
   # if we do have a link to a schedule, get the schedule and print the info
-  else
-    schedule_url = URI.parse(URI.encode(schedule_url)) 
-    Net::HTTP.start(schedule_url.host, schedule_url.port) do |http|
-      Dir.chdir($work_dir) do
-        schedule = http.get schedule_url
-#         # count the number of programmes today
-#         schedule.body.each_line do |line|
-#           progs = progs + 1 if line.include?('- is_repeat:')
-#         end
-        # make an array containing a hash for each programme in schedule
-        $progs = []
-        regex_starts = / start: "(.{20})"/
-        regex_ends = / end: "(.{20})"/
-        regex_synopsis = / short_synopsis: "(.*?)"/
-        regex_title = / display_titles:\s*title: "(.*?)"/
-        regex_subtitle = / subtitle: "(.*?)"/
-        regex_scanner = /(?:#{regex_starts})|(?:#{regex_ends})|(?:#{regex_synopsis})|(?:#{regex_title})|(?:#{regex_subtitle})/m
+  def regex_scanner
+    regex_starts = / start: "(.{20})"/
+    regex_ends = / end: "(.{20})"/
+    regex_synopsis = / short_synopsis: "(.*?)"/
+    regex_title = / display_titles:\s*title: "(.*?)"/
+    regex_subtitle = / subtitle: "(.*?)"/
+    @regex_scanner = /(?:#{regex_starts})|(?:#{regex_ends})|(?:#{regex_synopsis})|(?:#{regex_title})|(?:#{regex_subtitle})/m
+  end
+  
+  # get schedule file, split it, put relevant info in array
+  def get_schedule
+    Dir.chdir @work_dir do
+      Net::HTTP.start(@schedule.host, @schedule.port) do |http|
+        schedule = http.get @schedule
+        # put programme info into a hash and push to programmes array
         schedule.body.split('- is_repeat').drop(1).each do |programme|
-          match = programme.scan(regex_scanner).flatten.compact
           prog = Hash.new
+          match = programme.scan(regex_scanner).flatten.compact
           prog['starts'] = match[0]
           prog['ends'] = match[1]
           prog['synopsis'] = match[2]
           prog['title'] = match[3]
           prog['subtitle'] = match[4]
-          $progs.push prog
+          @programmes.push prog
         end
       end
     end
-    # find first instance of end time after now_or_playing
-    $progs.compact.each do |prog|
-      $now_playing = $progs.index( prog )
+  end
+  
+  # what's playing now
+  def now_playing
+    @programmes.compact.each do |prog|
+      @now_playing = @programmes.index( prog )
       break if ( DateTime.parse(prog['ends']) > DateTime.now )
     end
-    # construct now / next info
-    # now
-    starts = DateTime.parse($progs[$now_playing]['starts']).strftime('%H:%M')
-    ends = DateTime.parse($progs[$now_playing]['ends']).strftime('%H:%M')
-
-    line1 = (' Now on ' + $station[0]).colorize(:blue) unless play
-    line1 = (' Playing ' + $station[0]).colorize(:blue) if play
-    line2 = ' ' + starts + ' - ' + ends + '  ' + ($progs[$now_playing]['title']).colorize(:yellow)
-    line3 = ('                - ' + $progs[$now_playing]['subtitle']).colorize(:green)
-    line4 = ' ' + $progs[$now_playing]['synopsis']
-    # next
+  end
+  
+  # construct now / next info
+  # now
+  def now( play )
+    starts = DateTime.parse(@programmes[@now_playing]['starts']).strftime('%H:%M')
+    ends = DateTime.parse(@programmes[@now_playing]['ends']).strftime('%H:%M')
+    line1 = (' Now on ' + @station[0]).colorize(:blue) unless play
+    line1 = (' Playing ' + @station[0]).colorize(:blue) if play
+    line2 = ' ' + starts + ' - ' + ends + '  ' + (@programmes[@now_playing]['title']).colorize(:yellow)
+    line3 = ('                - ' + @programmes[@now_playing]['subtitle']).colorize(:green)
+    line4 = ' ' + @programmes[@now_playing]['synopsis']
+    puts line1, line2, line3, line4, ''
+  end
+  
+  # next
+  def next_on( later )
     next_on = ' Next'.colorize(:blue)
-    $progs.compact.drop($now_playing+1).each_with_index do |programme, index|
+    @programmes.compact.drop(@now_playing+1).each_with_index do |programme, index|
       starts = DateTime.parse(programme['starts']).strftime('%H:%M')
       ends = DateTime.parse(programme['ends']).strftime('%H:%M')
       next_on = next_on, ' ' + starts + ' - ' + ends + '  ' + programme['title'].colorize(:yellow)
-      break if ((index > 4)  and (later == false))
+      break if ((index > 1)  and (later == false))
     end
-    # display the information
-    puts line1, line2, line3, line4, '', next_on
-  end 
+    puts next_on
+  end
+
+
+
 end
+
+# def nownext( search, later, play )
+# end
 
 input = ARGV
 case input[0]
@@ -104,11 +148,11 @@ else
   search = input[0].to_s
   case input[1]
   when 'now', 'next'
-    nownext( search, false, false )
+    RadioPlayer.new( search, false, false )
   when 'later'
-    nownext( search, true, false )
+    RadioPlayer.new( search, true, false )
   when 'play', nil
-    nownext( search, false, true )
+    RadioPlayer.new( search, false, true )
   else
     puts 'Please try again'
   end
@@ -117,59 +161,5 @@ end
 
 
 
-  # split file into individual programmes
-  
-  # for each programme:
-  # get start time
-  # get end time
-  # if n > 0
-    # print times and title
-  # if on now
-    # print title, subtitle, synopsis
-# end
-# 
-# streams = "/home/freds/bin/bbc_streams.txt"
-# linenum = 0
-# if ARGV[0] == "stop"
 #   system( "cvlc vlc://quit &> /dev/null &" )
-#   puts "stopping radio"
-# elsif ARGV[0] == "list"
-#   if ARGV[1]
-#     file = File.open(streams)
-#     file.each do |line|
-#       linenum = $. if line.downcase.include?(ARGV[1])
-#       break if linenum != 0
-#     end
-#        puts linenum
-#    array = File.readlines(streams)
-#     puts array[linenum - 1]
-#   else
-#     file.each do |line|
-#       puts line if line.include?("[*")
-#     end
-#     list = system( "grep BBC " + streams )
-#   end
-#   puts list
-# else
-#   if ARGV[1] == "now"
-#     puts "Radio schedules coming soon"
-#   else
-#     file = File.open(streams)
-#     file.each do |line|
-#       linenum = $. if line.downcase.include?(ARGV[0])
-#       break if linenum != 0
-#     end
-#     if linenum == 0
-#       puts "No Station Found."
-#     else
-#       array = File.readlines(streams)
 #       IO.popen( "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + array[linenum] + " $> /dev/null &" )
-#       puts "Playing"
-#     end
-#   end
-#     
-# end
-# # v1 = ARGV[0]
-# # v2 = ARGV[1]
-# # puts v1
-# # puts v2
