@@ -4,7 +4,7 @@ require 'net/http'
 require 'date'
 require 'colorize'
 
-  STREAMS_FILE_URL = 'https://raw.githubusercontent.com/lemybeck/bash-bbc-radio/master/radio_streams'
+  STREAMS_FILE_URL = 'https://raw.githubusercontent.com/lemybeck/ruby-radio/master/radio_streams'
 
 
 class RadioPlayer
@@ -92,13 +92,14 @@ class RadioPlayer
   # stop playing the radio
   def stop
     puts 'Stopping radio'
+     exec "cvlc vlc://quit &> /dev/null"
   end
   
   # play a stream
   def play( search )
     match_station( search )
     if @stream_url
-      puts @stream_url
+      fork { exec "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + @stream_url + " &> /dev/null  &" }
     else
       no_stream
     end
