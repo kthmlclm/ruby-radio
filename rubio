@@ -4,22 +4,17 @@ require 'net/http'
 require 'date'
 require 'colorize'
 
-  STREAMS_URL = 'https://raw.githubusercontent.com/lemybeck/bash-bbc-radio/master/radio_streams'
+  STREAMS_FILE_URL = 'https://raw.githubusercontent.com/lemybeck/bash-bbc-radio/master/radio_streams'
 
 
 class RadioPlayer
   
   
-  def initialize( search, later, play )
+  def initialize( arg )
     initialize_variables
     set_work_dir
     get_streams_file
-    match_station( search )
-    regex_scanner
-    get_schedule
-    now_playing
-    now( play )
-    next_on( later )
+    set_mode( arg )
   end
 
   def initialize_variables
@@ -36,7 +31,7 @@ class RadioPlayer
   
   # check if streams file exists, download it if not
   def get_streams_file
-    uri = URI.parse STREAMS_URL
+    uri = URI.parse STREAMS_FILE_URL
     @streams = @work_dir+File.basename(uri.path)
     unless File.exists? @streams
       Net::HTTP.start(uri.host, uri.port, :use_ssl => uri.scheme == 'https') do |http|
@@ -48,22 +43,106 @@ class RadioPlayer
     end
   end
   
+  # set the mode
+  def set_mode( arg )
+    case arg[0]
+    when nil, '-h', 'help'
+      help
+    when 'list'
+      list( 0, arg )
+    when 'stop'
+      stop
+    else
+      case arg[1]
+      when 'list'
+        list( 1, arg )
+      when 'play', nil
+        play( arg[0] )
+        now_next( arg[0], true, false )
+      when 'now', 'next'
+        now_next( arg[0], false, false )
+      when 'later'
+        now_next( arg[0], false, true )
+      else
+        help
+      end
+    end
+  end
+  
+  # print basic usage message
+  def help
+    puts 'help text'
+  end
+  
+  # list available stations
+  def list( order, arg )
+    case order
+    when 0
+      if arg[1]
+        @search = arg[0]
+        puts 'sorted list'
+      else
+        puts 'list'
+      end
+    when 1
+      puts 'list'
+    end
+  end
+  
+  # stop playing the radio
+  def stop
+    puts 'Stopping radio'
+  end
+  
+  # play a stream
+  def play( search )
+    match_station( search )
+    if @stream_url
+      puts @stream_url
+    else
+      no_stream
+    end
+  end    
+  
+  # display a schedule
+  def now_next( search, play, later )
+    match_station( search ) unless @schedule
+    if @schedule
+      regex_scanner
+      get_schedule
+      now_playing
+      now_on( play )
+      next_on( later )
+    else
+      no_schedule
+    end
+  end
+  
   # match station
   def match_station( search )
     stations = File.open @streams
     stations.each do |line|
-      @station_position = $. if line.downcase.include?('[*') && line.downcase.include?(search)
+      @station_position = $. if line.downcase.include?('[*') && line.downcase.include?(search.to_s)
       @station = line.scan(/] (.*)/)[0]
       break if @station_position != 0
     end
-    @stream_url = IO.readlines(stations)[@station_position].strip
-    schedule = IO.readlines(stations)[@station_position+1].strip
-    @schedule = URI.parse(URI.encode(schedule)) if schedule.match(/.*yaml/)
+    if @station_position == 0
+      no_stream
+    else
+      @stream_url = IO.readlines(stations)[@station_position].strip
+      schedule = IO.readlines(stations)[@station_position+1].strip
+      @schedule = URI.parse(URI.encode(schedule)) if schedule.match(/.*yaml/)
+    end
   end
-
+  
+  # if we don't have a link to a stream, print a short message and exit
+  def no_stream
+    puts 'No station found. Try "rubio list" or "rubio help"'
+  end
+  
   # if we don't have a link to a schedule, print a short message
-  def no_match
-    puts 'no information'
+  def no_schedule
+    puts 'No schedule found.'
     puts @schedule
   end
   
@@ -105,9 +184,8 @@ class RadioPlayer
     end
   end
   
-  # construct now / next info
-  # now
-  def now( play )
+  # display what's playing now
+  def now_on( play )
     starts = DateTime.parse(@programmes[@now_playing]['starts']).strftime('%H:%M')
     ends = DateTime.parse(@programmes[@now_playing]['ends']).strftime('%H:%M')
     line1 = (' Now on ' + @station[0]).colorize(:blue) unless play
@@ -118,7 +196,7 @@ class RadioPlayer
     puts line1, line2, line3, line4, ''
   end
   
-  # next
+  # display what's playing next / later
   def next_on( later )
     next_on = ' Next'.colorize(:blue)
     @programmes.compact.drop(@now_playing+1).each_with_index do |programme, index|
@@ -134,32 +212,10 @@ class RadioPlayer
 
 end
 
-# def nownext( search, later, play )
-# end
 
-input = ARGV
-case input[0]
-when 'list'
-  puts 'list'
-when 'stop'
-  puts 'Stopping'
-  system( "cvlc vlc://quit &> /dev/null &" )
-else
-  search = input[0].to_s
-  case input[1]
-  when 'now', 'next'
-    RadioPlayer.new( search, false, false )
-  when 'later'
-    RadioPlayer.new( search, true, false )
-  when 'play', nil
-    RadioPlayer.new( search, false, true )
-  else
-    puts 'Please try again'
-  end
-end
-
+RadioPlayer.new(ARGV)
 
 
 
 #   system( "cvlc vlc://quit &> /dev/null &" )
-#       IO.popen( "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + array[linenum] + " $> /dev/null &" )
+#   IO.popen( "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + @stream_url + " $> /dev/null &" )
