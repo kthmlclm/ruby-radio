@@ -4,7 +4,8 @@ require 'net/http'
 require 'date'
 require 'colorize'
 
-  STREAMS_FILE_URL = 'https://raw.githubusercontent.com/lemybeck/ruby-radio/master/radio_streams'
+
+STREAMS_FILE_URL = 'https://raw.githubusercontent.com/lemybeck/ruby-radio/master/radio_streams'
 
 
 class RadioPlayer
@@ -92,14 +93,15 @@ class RadioPlayer
   # stop playing the radio
   def stop
     puts 'Stopping radio'
-     exec "cvlc vlc://quit &> /dev/null"
+     exec "cvlc --one-instance vlc://quit &> /dev/null"
   end
   
   # play a stream
   def play( search )
     match_station( search )
     if @stream_url
-      fork { exec "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + @stream_url + " &> /dev/null  &" }
+      @playing = true
+      fork { exec "cvlc --one-instance vlc://quit &> /dev/null && cvlc -q " + @stream_url + " &> /dev/null  &" }
     else
       no_stream
     end
@@ -107,7 +109,7 @@ class RadioPlayer
   
   # display a schedule
   def now_next( search, play, later )
-    match_station( search ) unless @schedule
+    match_station( search ) unless @station
     if @schedule
       regex_scanner
       get_schedule
@@ -123,8 +125,8 @@ class RadioPlayer
   def match_station( search )
     stations = File.open @streams
     stations.each do |line|
-      @station_position = $. if line.downcase.include?('[*') && line.downcase.include?(search.to_s)
       @station = line.scan(/] (.*)/)[0]
+      @station_position = $. if line.downcase.include?('[*') && line.downcase.include?(search.to_s)
       break if @station_position != 0
     end
     if @station_position == 0
@@ -143,8 +145,7 @@ class RadioPlayer
   
   # if we don't have a link to a schedule, print a short message
   def no_schedule
-    puts 'No schedule found.'
-    puts @schedule
+    puts (' Playing ' + @station[0]).colorize(:blue), '', ' No schedule found.'
   end
   
   # if we do have a link to a schedule, get the schedule and print the info
@@ -216,7 +217,3 @@ end
 
 RadioPlayer.new(ARGV)
 
-
-
-#   system( "cvlc vlc://quit &> /dev/null &" )
-#   IO.popen( "cvlc vlc://quit &> /dev/null && sleep 0.1s && cvlc -q " + @stream_url + " $> /dev/null &" )
