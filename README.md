@@ -1,3 +1,5 @@
+**Doesn't work anymore**
+
 # Ruby BBC Radio
 
 A ruby script to play high quality BBC streams from the command line, via VLC's cvlc command.
